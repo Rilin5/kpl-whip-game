@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>抽陀螺 · KPL 版</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#0a0a12; font-family:"Microsoft YaHei","PingFang SC",sans-serif; user-select:none; }
+  #gameCanvas { display:block; width:100vw; height:100vh; cursor:crosshair; }
+
+  /* 顶部标题栏 */
+  #topBar {
+    position:fixed; top:0; left:0; right:0; height:56px;
+    display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(180deg, rgba(10,10,20,.9), rgba(10,10,20,0));
+    pointer-events:none; z-index:10;
+  }
+  #topBar .title {
+    font-size:26px; font-weight:bold; letter-spacing:6px;
+    background:linear-gradient(180deg,#ffe9a0,#c9962e);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    text-shadow:0 0 20px rgba(255,200,80,.25);
+  }
+  #hint {
+    position:fixed; top:60px; left:0; right:0; text-align:center;
+    color:rgba(255,255,255,.55); font-size:13px; pointer-events:none; z-index:10;
+  }
+
+  /* 底部计分板 */
+  #scoreBoard {
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    display:flex; gap:14px; align-items:center;
+    background:rgba(15,15,28,.85); border:1px solid rgba(255,255,255,.12);
+    border-radius:14px; padding:10px 18px; z-index:10;
+    backdrop-filter:blur(6px);
+  }
+  .team-chip {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(255,255,255,.06); border-radius:10px; padding:6px 12px;
+    border:1px solid rgba(255,255,255,.08); min-width:96px;
+  }
+  .team-chip .logo {
+    width:30px; height:30px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:bold; color:#fff; flex-shrink:0;
+  }
+  .team-chip .info { display:flex; flex-direction:column; }
+  .team-chip .name { font-size:12px; color:#ddd; font-weight:bold; }
+  .team-chip .rpm { font-size:13px; font-weight:bold; color:#ffd76a; font-variant-numeric:tabular-nums; }
+  .whip-chip {
+    display:flex; align-items:center; gap:8px;
+    background:rgba(255,215,106,.1); border:1px solid rgba(255,215,106,.35);
+    border-radius:10px; padding:6px 14px;
+  }
+  .whip-chip .label { font-size:12px; color:#ffd76a; }
+  .whip-chip .count { font-size:20px; font-weight:bold; color:#ffd76a; }
+
+  /* 浮动提示文字 */
+  .float-text {
+    position:fixed; pointer-events:none; z-index:20;
+    font-weight:bold; white-space:nowrap;
+    animation:floatUp 1s ease-out forwards;
+    text-shadow:0 2px 8px rgba(0,0,0,.6);
+  }
+  @keyframes floatUp {
+    0% { opacity:0; transform:translate(-50%,-50%) scale(.5); }
+    15% { opacity:1; transform:translate(-50%,-60%) scale(1.15); }
+    100% { opacity:0; transform:translate(-50%,-160%) scale(1); }
+  }
+  .banner-text {
+    position:fixed; left:50%; top:38%; transform:translate(-50%,-50%);
+    pointer-events:none; z-index:20; font-weight:bold; white-space:nowrap;
+    animation:bannerPop 1.1s ease-out forwards;
+    -webkit-text-stroke:1px rgba(0,0,0,.4);
+  }
+  @keyframes bannerPop {
+    0% { opacity:0; transform:translate(-50%,-50%) scale(.3) rotate(-6deg); }
+    18% { opacity:1; transform:translate(-50%,-50%) scale(1.25) rotate(2deg); }
+    32% { transform:translate(-50%,-50%) scale(1) rotate(0deg); }
+    75% { opacity:1; }
+    100% { opacity:0; transform:translate(-50%,-60%) scale(1.05); }
+  }
+
+  /* 开始遮罩 */
+  #startOverlay {
+    position:fixed; inset:0; z-index:50;
+    background:rgba(5,5,12,.82); backdrop-filter:blur(4px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  }
+  #startOverlay h1 {
+    font-size:42px; letter-spacing:8px;
+    background:linear-gradient(180deg,#ffe9a0,#c9962e);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  #startOverlay p { color:rgba(255,255,255,.7); font-size:15px; line-height:1.9; text-align:center; }
+  #startBtn {
+    margin-top:8px; padding:14px 52px; font-size:18px; font-weight:bold; letter-spacing:4px;
+    color:#1a1206; background:linear-gradient(180deg,#ffe9a0,#d4a53a);
+    border:none; border-radius:999px; cursor:pointer;
+    box-shadow:0 0 30px rgba(255,200,80,.35);
+    transition:transform .15s;
+  }
+  #startBtn:hover { transform:scale(1.06); }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="topBar"><div class="title">抽 陀 螺</div></div>
+<div id="hint">🖱️ 按住鼠标拖动挥鞭 · 顺着陀螺旋转方向抽，转速涨得最多 · 逆着抽会倒扣</div>
+
+<div id="scoreBoard"></div>
+
+<div id="startOverlay">
+  <h1>抽 陀 螺 · KPL 版</h1>
+  <p>
+    五个 KPL 战队陀螺同场竞技：AG · TTG · JDG · WB · 重庆狼队<br>
+    陀螺会自转 + 绕台公转，转速会自然衰减，不抽就会停！<br>
+    按住鼠标左键拖动"挥鞭"，鞭梢扫过陀螺即可抽打。<br>
+    <b style="color:#ffd76a">顺着陀螺自转方向抽 = 完美一鞭（大幅加速）</b><br>
+    <b style="color:#ff7a7a">逆着抽 = 抽反了（转速倒扣）</b><br>
+    在 60 秒内把你支持的战队抽到第一名！
+  </p>
+  <button id="startBtn">开 始 游 戏</button>
+</div>
+
+<script>
+/* ============================================================
+   抽陀螺 · KPL 版  —— 单文件网页应用
+   玩法：鼠标按住拖动 = 挥鞭；鞭梢扫过陀螺判定抽打；
+   顺/逆陀螺自转方向决定加/减速。
+   ============================================================ */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------------- 工具函数 ---------------- */
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+function angDiff(a, b) { let d = (a - b) % TAU; if (d > Math.PI) d -= TAU; if (d < -Math.PI) d += TAU; return d; }
+function angLerp(a, b, t) { return a + angDiff(b, a) * t; }
+
+/* ---------------- 战队数据 ---------------- */
+const TEAMS = [
+  { key:'AG',   name:'AG',       full:'AG超玩会', color:'#e63e3e', color2:'#8f1414', logoBg:'#c62828' },
+  { key:'TTG',  name:'TTG',      full:'广州TTG',  color:'#3ec6ff', color2:'#0e6f9e', logoBg:'#0e7490' },
+  { key:'JDG',  name:'JDG',      full:'JDG',      color:'#ff4d6d', color2:'#8f1030', logoBg:'#be123c' },
+  { key:'WB',   name:'WB',       full:'北京WB',   color:'#ffd23e', color2:'#9c7a08', logoBg:'#a16207' },
+  { key:'WOLVES',name:'狼队',    full:'重庆狼队', color:'#f5f5f5', color2:'#8a8a8a', logoBg:'#374151' },
+];
+
+/* ---------------- 游戏状态 ---------------- */
+const GAME_TIME = 60;          // 秒
+let running = false;
+let gameTime = 0;
+let lastTs = 0;
+let whipCount = 0;
+let particles = [];
+let floatQueue = [];           // 浮动文字队列（DOM）
+
+/* 台子参数（椭圆透视） */
+let CX = 0, CY = 0, RX = 0, RY = 0;
+
+/* 陀螺 */
+const tops = [];
+const N = 5;
+
+function initTops() {
+  tops.length = 0;
+  for (let i = 0; i < N; i++) {
+    const team = TEAMS[i];
+    const dir = (i === 4) ? -1 : 1;
+    tops.push({
+      team,
+      orbitA0: (i / N) * TAU,
+      orbitA: (i / N) * TAU,
+      orbitR: 0.52,
+      orbitSpeed: dir * rand(0.25, 0.4),
+      spinDir: dir,
+      spinAngle: rand(0, TAU),
+      rpm: rand(880, 960),
+      x: 0, y: 0, size: 1,
+      flash: 0,
+      lastHit: -9,
+      wobble: rand(0, TAU),
+    });
+  }
+}
+
+/* ---------------- 鞭子 ---------------- */
+const whip = {
+  active: false,
+  points: [],
+  maxPoints: 26,
+  tip: null,
+  tipNow: null,
+};
+
+/* ---------------- 输入 ---------------- */
+function pointerPos(e) {
+  const t = e.touches ? e.touches[0] : e;
+  return { x: t.clientX, y: t.clientY };
+}
+function startWhip(e) {
+  if (!running) return;
+  whip.active = true;
+  const p = pointerPos(e);
+  whip.points = [p];
+  whip.tip = p; whip.tipNow = p;
+}
+function moveWhip(e) {
+  if (!whip.active) return;
+  e.preventDefault();
+  const p = pointerPos(e);
+  whip.points.push(p);
+  if (whip.points.length > whip.maxPoints) whip.points.shift();
+}
+function endWhip() {
+  whip.active = false;
+  whip.points = [];
+  whip.tip = null; whip.tipNow = null;
+}
+canvas.addEventListener('mousedown', startWhip);
+window.addEventListener('mousemove', moveWhip);
+window.addEventListener('mouseup', endWhip);
+canvas.addEventListener('touchstart', startWhip, { passive: false });
+canvas.addEventListener('touchmove', moveWhip, { passive: false });
+canvas.addEventListener('touchend', endWhip);
+
+/* ---------------- 浮动文字 ---------------- */
+function floatText(x, y, text, color, size = 18) {
+  const el = document.createElement('div');
+  el.className = 'float-text';
+  el.textContent = text;
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+  el.style.color = color; el.style.fontSize = size + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+function banner(text, color) {
+  const el = document.createElement('div');
+  el.className = 'banner-text';
+  el.textContent = text;
+  el.style.color = color;
+  el.style.fontSize = Math.min(64, W * 0.06) + 'px';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1100);
+}
+
+/* ---------------- 抽打判定 ---------------- */
+function checkWhipHits() {
+  if (!whip.active || whip.points.length < 2) return;
+  const a = whip.tip, b = whip.tipNow;
+  if (!a || !b) return;
+  const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+  if (segLen < 2) return;
+
+  for (const t of tops) {
+    const abx = b.x - a.x, aby = b.y - a.y;
+    const apx = t.x - a.x, apy = t.y - a.y;
+    const ab2 = abx * abx + aby * aby;
+    let u = (apx * abx + apy * aby) / ab2;
+    u = Math.max(0, Math.min(1, u));
+    const cx = a.x + abx * u, cy = a.y + aby * u;
+    const dist = Math.hypot(t.x - cx, t.y - cy);
+
+    const hitR = 46 * t.size;
+    if (dist < hitR) {
+      if (segLen < 6) continue;
+      const now = performance.now() / 1000;
+      if (now - t.lastHit < 0.25) continue;
+      t.lastHit = now;
+
+      const toCx = CX - t.x, toCy = CY - t.y;
+      const toLen = Math.hypot(toCx, toCy) || 1;
+      let tx, ty;
+      if (t.spinDir > 0) { tx = -toCy / toLen; ty = toCx / toLen; }
+      else { tx = toCy / toLen; ty = -toCx / toLen; }
+      const wx = b.x - a.x, wy = b.y - a.y;
+      const wLen = Math.hypot(wx, wy) || 1;
+      const align = (wx * tx + wy * ty) / wLen;
+
+      let delta, txt, col;
+      if (align > 0.35) {
+        delta = Math.round(rand(140, 240) * (0.6 + 0.4 * align));
+        txt = '完美一鞭!'; col = '#ffd76a';
+        banner('完美一鞭 !', '#ffd76a');
+      } else if (align < -0.35) {
+        delta = -Math.round(rand(120, 220));
+        txt = '抽反了 -' + Math.abs(delta); col = '#ff7a7a';
+        banner('抽 反 了 !', '#ff7a7a');
+      } else {
+        delta = Math.round(rand(30, 80));
+        txt = '好鞭 +' + delta; col = '#9fe8ff';
+      }
+      t.rpm = Math.max(0, t.rpm + delta);
+      t.flash = 1;
+      whipCount++;
+      floatText(t.x, t.y - 40 * t.size, txt + (delta > 0 ? ' +' + delta : ''), col, 20);
+      spawnSparks(t.x, t.y, t.team.color, delta > 0 ? 14 : 8);
+    }
+  }
+}
+
+/* ---------------- 粒子 ---------------- */
+function spawnSparks(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, TAU), sp = rand(60, 260);
+    particles.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 60, life: 1, color, size: rand(1.5, 3.5) });
+  }
+}
+
+/* ---------------- 计分板 ---------------- */
+const scoreBoard = document.getElementById('scoreBoard');
+function buildScoreBoard() {
+  scoreBoard.innerHTML = '';
+  for (const t of tops) {
+    const chip = document.createElement('div');
+    chip.className = 'team-chip';
+    chip.innerHTML = `
+      <div class="logo" style="background:${t.team.logoBg};border:2px solid ${t.team.color}">${t.team.name}</div>
+      <div class="info">
+        <div class="name">${t.team.full}</div>
+        <div class="rpm" id="rpm-${t.team.key}">0</div>
+      </div>`;
+    scoreBoard.appendChild(chip);
+  }
+  const whipChip = document.createElement('div');
+  whipChip.className = 'whip-chip';
+  whipChip.innerHTML = `<span class="label">鞭</span><span class="count" id="whipCount">0</span>`;
+  scoreBoard.appendChild(whipChip);
+}
+function updateScoreBoard() {
+  for (const t of tops) {
+    const el = document.getElementById('rpm-' + t.team.key);
+    if (el) el.textContent = Math.round(t.rpm) + ' RPM';
+  }
+  const wc = document.getElementById('whipCount');
+  if (wc) wc.textContent = whipCount;
+}
+
+/* ---------------- 更新逻辑 ---------------- */
+function update(dt) {
+  if (!running) return;
+  gameTime += dt;
+
+  CX = W / 2;
+  CY = H * 0.52;
+  RX = Math.min(W * 0.42, 520);
+  RY = RX * 0.34;
+
+  for (const t of tops) {
+    t.orbitA += t.orbitSpeed * dt;
+    const ox = Math.cos(t.orbitA) * RX * t.orbitR;
+    const oy = Math.sin(t.orbitA) * RY * t.orbitR;
+    t.x = CX + ox;
+    t.y = CY + oy;
+    const depth = (Math.sin(t.orbitA) + 1) / 2;
+    t.size = 0.72 + depth * 0.5;
+    t.depth = depth;
+
+    t.spinAngle += t.spinDir * (t.rpm / 60) * TAU * dt * 0.12;
+    t.rpm = Math.max(0, t.rpm - 26 * dt);
+    t.flash = Math.max(0, t.flash - dt * 3);
+    t.wobble += dt * (2 + (1000 - t.rpm) / 200);
+  }
+
+  checkWhipHits();
+  whip.tip = whip.tipNow;
+  if (whip.active && whip.points.length) whip.tipNow = whip.points[whip.points.length - 1];
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 320 * dt;
+    p.life -= dt * 1.6;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  updateScoreBoard();
+
+  if (gameTime >= GAME_TIME) endGame();
+}
+
+/* ---------------- 绘制 ---------------- */
+function drawArena() {
+  ctx.save();
+  ctx.translate(CX, CY);
+  ctx.beginPath();
+  ctx.ellipse(0, RY * 0.15, RX * 1.08, RY * 1.25, 0, 0, TAU);
+  ctx.fillStyle = 'rgba(0,0,0,.55)';
+  ctx.fill();
+  const g = ctx.createRadialGradient(0, 0, RY * 0.2, 0, 0, RX);
+  g.addColorStop(0, '#2a2a3e');
+  g.addColorStop(0.7, '#1a1a28');
+  g.addColorStop(1, '#101018');
+  ctx.beginPath();
+  ctx.ellipse(0, 0, RX, RY, 0, 0, TAU);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(120,220,255,.5)';
+  ctx.stroke();
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = 'rgba(120,220,255,.12)';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(0, 0, RX * 0.62, RY * 0.62, 0, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,255,255,.08)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  for (let i = 0; i < 40; i++) {
+    const a = (i / 40) * TAU;
+    ctx.beginPath();
+    ctx.ellipse(Math.cos(a) * RX * 0.94, Math.sin(a) * RY * 0.94, 2.4, 1.2, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,255,.25)';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawTop(t) {
+  const s = t.size;
+  const r = 34 * s;
+  ctx.save();
+  ctx.translate(t.x, t.y);
+
+  ctx.beginPath();
+  ctx.ellipse(0, r * 0.85, r * 0.9, r * 0.28, 0, 0, TAU);
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.fill();
+
+  const glowA = Math.min(1, t.rpm / 1400);
+  if (glowA > 0.05) {
+    const gg = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 2.2);
+    gg.addColorStop(0, t.team.color + Math.round(glowA * 90).toString(16).padStart(2, '0'));
+    gg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 2.2, 0, TAU);
+    ctx.fillStyle = gg;
+    ctx.fill();
+  }
+
+  if (t.flash > 0) {
+    ctx.beginPath();
+    ctx.arc(0, 0, r * (1.3 + t.flash * 0.6), 0, TAU);
+    ctx.strokeStyle = `rgba(255,255,255,${t.flash * 0.9})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  const wob = Math.max(0, (700 - t.rpm) / 700);
+  const wobbleX = Math.sin(t.wobble * 6) * wob * 6;
+  const wobbleRot = Math.sin(t.wobble * 6) * wob * 0.18;
+  ctx.rotate(wobbleRot);
+  ctx.translate(wobbleX, 0);
+
+  const trailN = Math.floor(Math.min(10, t.rpm / 130));
+  for (let i = 1; i <= trailN; i++) {
+    const a = t.spinAngle - t.spinDir * i * 0.28;
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * (1 + i * 0.05), r * 0.55 * (1 + i * 0.05), 0, 0, TAU);
+    ctx.strokeStyle = t.team.color + Math.max(0, Math.round((1 - i / (trailN + 1)) * 40)).toString(16).padStart(2, '0');
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const bodyG = ctx.createLinearGradient(-r, 0, r, 0);
+  bodyG.addColorStop(0, t.team.color2);
+  bodyG.addColorStop(0.45, t.team.color);
+  bodyG.addColorStop(0.6, '#ffffff');
+  bodyG.addColorStop(0.75, t.team.color);
+  bodyG.addColorStop(1, t.team.color2);
+  ctx.beginPath();
+  ctx.moveTo(0, -r * 1.05);
+  ctx.quadraticCurveTo(r * 0.95, -r * 0.25, r * 0.55, r * 0.55);
+  ctx.lineTo(0, r * 0.8);
+  ctx.lineTo(-r * 0.55, r * 0.55);
+  ctx.quadraticCurveTo(-r * 0.95, -r * 0.25, 0, -r * 1.05);
+  ctx.fillStyle = bodyG;
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(0, -r * 0.72, r * 0.62, r * 0.3, 0, 0, TAU);
+  ctx.clip();
+  ctx.rotate(t.spinAngle);
+  for (let i = 0; i < 4; i++) {
+    ctx.rotate(TAU / 4);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(r * 0.7, -r * 0.18);
+    ctx.lineTo(r * 0.7, r * 0.18);
+    ctx.closePath();
+    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.75)' : t.team.color2;
+    ctx.fill();
+  }
+  ctx.restore();
+  ctx.beginPath();
+  ctx.ellipse(0, -r * 0.72, r * 0.62, r * 0.3, 0, 0, TAU);
+  ctx.strokeStyle = 'rgba(255,255,255,.5)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.18, r * 0.75);
+  ctx.lineTo(r * 0.18, r * 0.75);
+  ctx.lineTo(0, r * 1.05);
+  ctx.closePath();
+  ctx.fillStyle = '#cfd6e4';
+  ctx.fill();
+
+  ctx.restore();
+  drawTopLabel(t, r);
+}
+
+function drawTopLabel(t, r) {
+  const label = `${t.team.name}  ${Math.round(t.rpm)} RPM`;
+  ctx.save();
+  ctx.font = `bold ${Math.round(13 * t.size)}px "Microsoft YaHei", sans-serif`;
+  const tw = ctx.measureText(label).width;
+  const lw = tw + 52 * t.size;
+  const lh = 30 * t.size;
+  const lx = t.x - lw / 2;
+  const ly = t.y - r * 1.35 - lh;
+
+  ctx.beginPath();
+  ctx.roundRect(lx, ly, lw, lh, lh / 2);
+  ctx.fillStyle = 'rgba(12,12,22,.88)';
+  ctx.fill();
+  ctx.strokeStyle = t.team.color;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(lx + lh * 0.55, ly + lh / 2, lh * 0.32, 0, TAU);
+  ctx.fillStyle = t.team.logoBg;
+  ctx.fill();
+  ctx.strokeStyle = t.team.color;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${Math.round(9 * t.size)}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(t.team.name, lx + lh * 0.55, ly + lh / 2 + 1);
+
+  ctx.fillStyle = t.team.color;
+  ctx.font = `bold ${Math.round(13 * t.size)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.fillText(label, lx + lh * 0.95, ly + lh / 2 + 1);
+
+  const barW = lw - 16 * t.size;
+  const barH = 3.5;
+  const bx = lx + 8 * t.size;
+  const by = ly + lh + 4;
+  ctx.beginPath();
+  ctx.roundRect(bx, by, barW, barH, barH / 2);
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  ctx.fill();
+  const pct = Math.min(1, t.rpm / 1600);
+  if (pct > 0.01) {
+    ctx.beginPath();
+    ctx.roundRect(bx, by, barW * pct, barH, barH / 2);
+    ctx.fillStyle = t.team.color;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawWhip() {
+  if (!whip.active || whip.points.length < 2) return;
+  const pts = whip.points;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.strokeStyle = 'rgba(255,220,120,.25)';
+  ctx.lineWidth = 12;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.strokeStyle = '#e8b04a';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  const tip = pts[pts.length - 1];
+  const tg = ctx.createRadialGradient(tip.x, tip.y, 0, tip.x, tip.y, 18);
+  tg.addColorStop(0, 'rgba(255,240,180,.95)');
+  tg.addColorStop(1, 'rgba(255,240,180,0)');
+  ctx.beginPath();
+  ctx.arc(tip.x, tip.y, 18, 0, TAU);
+  ctx.fillStyle = tg;
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, TAU);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawTimer() {
+  if (!running) return;
+  const remain = Math.max(0, GAME_TIME - gameTime);
+  ctx.save();
+  ctx.font = 'bold 30px "Microsoft YaHei", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = remain < 10 ? '#ff7a7a' : 'rgba(255,255,255,.85)';
+  ctx.shadowColor = 'rgba(0,0,0,.6)';
+  ctx.shadowBlur = 8;
+  ctx.fillText('⏱ ' + remain.toFixed(1) + 's', W / 2, 108);
+  ctx.restore();
+}
+
+function draw() {
+  const bg = ctx.createRadialGradient(W / 2, H * 0.45, 60, W / 2, H * 0.45, Math.max(W, H) * 0.75);
+  bg.addColorStop(0, '#191928');
+  bg.addColorStop(1, '#07070e');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  drawArena();
+
+  const sorted = [...tops].sort((a, b) => a.depth - b.depth);
+  for (const t of sorted) drawTop(t);
+
+  drawParticles();
+  drawWhip();
+  drawTimer();
+}
+
+function endGame() {
+  running = false;
+  endWhip();
+  const winner = [...tops].sort((a, b) => b.rpm - a.rpm)[0];
+  const overlay = document.createElement('div');
+  overlay.id = 'startOverlay';
+  overlay.innerHTML = `
+    <h1>时间到！</h1>
+    <p style="font-size:22px;color:#ffd76a">🏆 冠军：<b>${winner.team.full}</b> — ${Math.round(winner.rpm)} RPM</p>
+    <p>${tops.map(t => `${t.team.full}: ${Math.round(t.rpm)} RPM`).join(' · ')}<br>共挥鞭 ${whipCount} 次</p>
+    <button id="restartBtn" style="margin-top:8px;padding:14px 52px;font-size:18px;font-weight:bold;letter-spacing:4px;color:#1a1206;background:linear-gradient(180deg,#ffe9a0,#d4a53a);border:none;border-radius:999px;cursor:pointer;box-shadow:0 0 30px rgba(255,200,80,.35)">再 来 一 局</button>`;
+  document.body.appendChild(overlay);
+  document.getElementById('restartBtn').onclick = () => { overlay.remove(); startGame(); };
+}
+
+function startGame() {
+  initTops();
+  buildScoreBoard();
+  particles = [];
+  floatQueue = [];
+  whipCount = 0;
+  gameTime = 0;
+  running = true;
+  document.getElementById('startOverlay')?.remove();
+}
+
+document.getElementById('startBtn').onclick = startGame;
+
+function loop(ts) {
+  const dt = Math.min(0.05, (ts - lastTs) / 1000 || 0);
+  lastTs = ts;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+initTops();
+buildScoreBoard();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
